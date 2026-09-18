@@ -46,7 +46,26 @@ class TrelloService {
             const actions = actionsResponse.data;
             const comments = commentsResponse.data;
 
-            const listInfo = LIST_STATUS_MAPPING[card.idList] || { status: 'Status Desconhecido', step: 0 };
+            let listInfo = LIST_STATUS_MAPPING[card.idList];
+
+            if (!listInfo) {
+                try {
+                    const listRes = await axios.get(`${BASE_URL}/lists/${card.idList}`, {
+                        params: { key: apiKey, token: token, fields: 'name' }
+                    });
+                    const listName = listRes.data?.name || 'Em Andamento';
+                    const nameLower = listName.toLowerCase();
+
+                    let step = 1;
+                    if (nameLower.includes('prod') || nameLower.includes('fazendo') || nameLower.includes('andamento')) step = 2;
+                    else if (nameLower.includes('retirada') || nameLower.includes('pronto') || nameLower.includes('aguardando')) step = 3;
+                    else if (nameLower.includes('final') || nameLower.includes('concl') || nameLower.includes('entregue') || nameLower.includes('feito')) step = 4;
+
+                    listInfo = { status: listName, step };
+                } catch (e) {
+                    listInfo = { status: 'Em Processamento', step: 1 };
+                }
+            }
 
             const formatDate = (dateString) => {
                 if (!dateString) return '---';
