@@ -5,7 +5,7 @@ import { TrackingTimeline } from '../components/TrackingTimeline';
 import { CommentSection } from '../components/CommentSection';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { Toast } from '../components/Toast';
-import { Search, Package, Sparkles, Copy, Check, AlertCircle, ArrowLeft, ShieldCheck, HelpCircle } from 'lucide-react';
+import { Search, Package, Sparkles, Copy, Check, AlertCircle, RefreshCw, Radio, ShieldCheck } from 'lucide-react';
 
 export const TrackingPage = () => {
   const { cardId: routeCardId } = useParams();
@@ -14,20 +14,25 @@ export const TrackingPage = () => {
   const [searchInput, setSearchInput] = useState(routeCardId || '');
   const [orderData, setOrderData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [errorState, setErrorState] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   
   const [copiedLink, setCopiedLink] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
-  const fetchOrder = async (idToFetch) => {
+  const fetchOrder = async (idToFetch, isBackgroundRefresh = false) => {
     if (!idToFetch || !idToFetch.trim()) return;
 
     const cleanId = idToFetch.trim();
-    setLoading(true);
+    if (isBackgroundRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setErrorState(false);
     setErrorMessage('');
-    setOrderData(null);
 
     try {
       const data = await trelloService.getPublicOrderCard(cleanId);
@@ -38,10 +43,15 @@ export const TrackingPage = () => {
       }
     } catch (err) {
       console.error('Erro ao rastrear pedido:', err);
-      setErrorState(true);
-      setErrorMessage('Pedido não encontrado ou ID inválido. Por favor, verifique o código e tente novamente.');
+      // Se não for um refresh em segundo plano, exibe o estado de erro
+      if (!isBackgroundRefresh) {
+        setErrorState(true);
+        setErrorMessage('Pedido não encontrado ou ID inválido. Por favor, verifique o código e tente novamente.');
+        setOrderData(null);
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -49,14 +59,38 @@ export const TrackingPage = () => {
   useEffect(() => {
     if (routeCardId) {
       setSearchInput(routeCardId);
-      fetchOrder(routeCardId);
+      fetchOrder(routeCardId, false);
     }
   }, [routeCardId]);
+
+  // Polling / Auto-atualização a cada 15 segundos se houver um pedido carregado e a opção ativa
+  useEffect(() => {
+    let interval = null;
+    const currentId = routeCardId || searchInput;
+
+    if (autoRefreshEnabled && orderData && currentId) {
+      interval = setInterval(() => {
+        fetchOrder(currentId, true);
+      }, 15000); // 15 segundos
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [autoRefreshEnabled, orderData, routeCardId, searchInput]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     if (!searchInput.trim()) return;
     navigate(`/track/${searchInput.trim()}`);
+  };
+
+  const handleManualRefresh = () => {
+    const currentId = routeCardId || searchInput;
+    if (currentId) {
+      fetchOrder(currentId, true);
+      setToastMessage('Status atualizado em tempo real!');
+    }
   };
 
   const copyTrackingLink = () => {
@@ -111,7 +145,7 @@ export const TrackingPage = () => {
         </form>
       </div>
 
-      {/* Estado 1: Carregando */}
+      {/* Estado 1: Carregando Inicial */}
       {loading && (
         <div className="py-12 glass-panel rounded-3xl border border-purple-500/30">
           <LoadingSpinner size="large" text="Consultando status do pedido no sistema..." />
@@ -159,18 +193,41 @@ export const TrackingPage = () => {
                   <span className="text-xs font-mono font-bold text-purple-300 uppercase">
                     Pedido #{orderData.shortId || '---'}
                   </span>
+
+                  {/* Indicador de Auto-Atualização em Tempo Real */}
+                  <div
+                    onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+                    title="Clique para alternar a atualização automática a cada 15s"
+                    className="ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-950/60 border border-purple-500/30 text-[10px] font-semibold text-purple-300 cursor-pointer hover:border-purple-400 transition-all"
+                  >
+                    <span className={`w-2 h-2 rounded-full ${autoRefreshEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
+                    <span>{autoRefreshEnabled ? 'Auto 15s' : 'Auto Off'}</span>
+                  </div>
                 </div>
+
                 <h2 className="text-2xl font-bold font-heading text-white">
                   {orderData.name}
                 </h2>
               </div>
 
-              {/* Status Badge */}
-              <div className="flex items-center gap-3">
+              {/* Status Badge + Botões de Ação */}
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="px-4 py-2 rounded-xl bg-purple-950/80 border border-purple-400/40 text-purple-200 text-xs font-bold glow-purple">
                   Status: <span className="text-white">{orderData.status}</span>
                 </div>
 
+                {/* Botão de Atualização Manual */}
+                <button
+                  onClick={handleManualRefresh}
+                  disabled={refreshing}
+                  title="Atualizar status agora"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-900/60 hover:bg-purple-800 border border-purple-500/30 text-xs font-bold text-purple-200 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-purple-300 ${refreshing ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Atualizar</span>
+                </button>
+
+                {/* Botão de Copiar Link */}
                 <button
                   onClick={copyTrackingLink}
                   title="Copiar link desta consulta"
